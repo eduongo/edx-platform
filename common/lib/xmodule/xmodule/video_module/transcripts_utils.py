@@ -2,6 +2,7 @@
 Utility functions for transcripts.
 ++++++++++++++++++++++++++++++++++
 """
+import functools
 from django.conf import settings
 import os
 import copy
@@ -915,7 +916,7 @@ def get_transcript_for_video(video_location, subs_id, file_name, language):
     return input_format, base_name, content
 
 
-def get_transcript_from_contentstore(video, language, output_format, youtube_id=None, is_bumper=False):
+def get_transcript_from_contentstore(video, language, output_format, transcripts_info, youtube_id=None):
     """
     Get video transcript from content store.
 
@@ -923,16 +924,16 @@ def get_transcript_from_contentstore(video, language, output_format, youtube_id=
         video (Video Descriptor): Video descriptor
         language (unicode): transcript language
         output_format (unicode): transcript output format
+        transcripts_info (dict): transcript info for a video
         youtube_id (unicode): youtube video id
-        is_bumper (bool): indicates bumper video
 
     Returns:
         tuple containing content, filename, mimetype
     """
+    # import pdb ; pdb.set_trace()
     if output_format not in (Transcript.SRT, Transcript.SJSON, Transcript.TXT):
         raise NotFoundError('Invalid transcript format `{output_format}`'.format(output_format=output_format))
 
-    transcripts_info = video.get_transcripts_info(is_bumper=is_bumper)
     sub, other_languages = transcripts_info['sub'], transcripts_info['transcripts']
     transcripts = dict(other_languages)
 
@@ -973,29 +974,45 @@ def get_transcript_from_contentstore(video, language, output_format, youtube_id=
     return transcript_content, transcript_name, Transcript.mime_types[output_format]
 
 
-def get_transcript(course_id, block_id, lang=None, output_format=Transcript.SRT, is_bumper=False):
+def catch_exceptions(func):
+    """
+    Decorator to catch exceptions and raise `NotFoundError` for specified exceptions.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (TranscriptException, TranscriptsGenerationException, UnicodeDecodeError) as ex:
+            log.exception(text_type(ex))
+            raise NotFoundError
+    return wrapper
+
+
+@catch_exceptions
+def get_transcript(video, transcripts_info, lang=None, output_format=Transcript.SRT, youtube_id=None):
     """
     Get video transcript from edx-val or content store.
 
     Arguments:
-        course_id (CourseLocator): course identifier
-        block_id (unicode): a unique identifier for an item in modulestore
+        video (Video Descriptor): Video Descriptor
+        transcripts_info (dict): transcript info for a video
         lang (unicode): transcript language
         output_format (unicode): transcript output format
-        is_bumper (bool): indicates bumper video
+        youtube_id (unicode): youtube video id
 
     Returns:
         tuple containing content, filename, mimetype
     """
-    usage_key = BlockUsageLocator(course_id, block_type='video', block_id=block_id)
-    video_descriptor = modulestore().get_item(usage_key)
+    if not lang:
+        lang = video.get_default_transcript_language(transcripts_info)
 
     try:
-        return get_transcript_from_val(video_descriptor.edx_video_id, lang, output_format)
+        return get_transcript_from_val(video.edx_video_id, lang, output_format)
     except NotFoundError:
         return get_transcript_from_contentstore(
-            video_descriptor,
+            video,
             lang,
+            youtube_id=youtube_id,
             output_format=output_format,
-            is_bumper=is_bumper
+            transcripts_info=transcripts_info
         )

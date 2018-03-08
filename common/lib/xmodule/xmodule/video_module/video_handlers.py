@@ -33,7 +33,6 @@ from .transcripts_utils import (
     youtube_speed_dict,
     get_transcript,
     get_transcript_from_val,
-    get_transcript_from_contentstore,
 )
 from .transcripts_model_utils import (
     is_val_transcript_feature_enabled_for_course
@@ -272,6 +271,7 @@ class VideoStudentViewHandlers(object):
                     Returns list of languages, for which transcript files exist.
                     For 'en' check if SJSON exists. For non-`en` check if SRT file exists.
         """
+        # import pdb ; pdb.set_trace()
         is_bumper = request.GET.get('is_bumper', False)
         # Currently, we don't handle video pre-load/bumper transcripts in edx-val.
         feature_enabled = is_val_transcript_feature_enabled_for_course(self.course_id) and not is_bumper
@@ -291,50 +291,31 @@ class VideoStudentViewHandlers(object):
                 self.transcript_language = language
 
             try:
-                content, filename, mimetype = get_transcript_from_contentstore(
+                content, filename, mimetype = get_transcript(
                     self,
-                    self.transcript_language,
+                    transcripts,
+                    lang=self.transcript_language,
                     output_format=Transcript.SJSON,
                     youtube_id=request.GET.get('videoId', None),
-                    is_bumper=is_bumper
                 )
-            except (TypeError, TranscriptException, NotFoundError) as ex:
-                # Catching `TranscriptException` because its also getting raised at places
-                # when transcript is not found in contentstore.
-                log.debug(six.text_type(ex))
-                # Try to return static URL redirection as last resort
-                # if no translation is required
-                response = self.get_static_transcript(request, transcripts)
-                if response.status_code == 404 and feature_enabled:
-                    content, filename, mimetype = get_transcript_from_val(
-                        self.edx_video_id,
-                        lang=self.transcript_language,
-                        output_format=Transcript.SJSON
-                    )
-                else:
-                    return response
-            except (UnicodeDecodeError, TranscriptsGenerationException) as ex:
+                response = Response(
+                    content,
+                    headerlist=[
+                        ('Content-Disposition', 'attachment; filename="{}"'.format(filename.encode('utf-8'))),
+                        ('Content-Language', self.transcript_language),
+                    ],
+                    charset='utf8',
+                )
+                response.content_type = mimetype
+            except NotFoundError as ex:
                 log.info(six.text_type(ex))
-                response = Response(status=404)
-
-            response = Response(
-                content,
-                headerlist=[
-                    ('Content-Disposition', 'attachment; filename="{}"'.format(filename.encode('utf-8'))),
-                    ('Content-Language', self.transcript_language),
-                ],
-                charset='utf8',
-            )
-            response.content_type = mimetype
-
+                return self.get_static_transcript(request, transcripts)
         elif dispatch == 'download':
             lang = request.GET.get('lang', None)
 
             try:
-                content, filename, mimetype = get_transcript(
-                    self.course_id, block_id=self.location.block_id, lang=lang
-                )
-            except (NotFoundError, UnicodeDecodeError):
+                content, filename, mimetype = get_transcript(self, transcripts, lang)
+            except NotFoundError:
                 return Response(status=404)
 
             response = Response(

@@ -823,7 +823,11 @@ class TestGetTranscript(SharedModuleStoreTestCase):
         Verify that `NotFoundError` exception is raised when transcript is not found in both the content store and val.
         """
         with self.assertRaises(NotFoundError):
-            transcripts_utils.get_transcript(self.course.id, self.video.location.block_id, lang=lang)
+            transcripts_utils.get_transcript(
+                self.video,
+                self.video.get_transcripts_info(),
+                lang=lang
+            )
 
     @ddt.data(
         {
@@ -845,8 +849,8 @@ class TestGetTranscript(SharedModuleStoreTestCase):
         self.upload_file(self.create_srt_file(self.subs_srt), self.video.location, filename)
         self.create_transcript(subs_id, language, filename)
         content, filename, mimetype = transcripts_utils.get_transcript(
-            self.course.id,
-            self.video.location.block_id,
+            self.video,
+            self.video.get_transcripts_info(),
             language
         )
 
@@ -861,8 +865,8 @@ class TestGetTranscript(SharedModuleStoreTestCase):
         language = u'ur'
         self.create_transcript(self.subs_id, language)
         content, filename, mimetype = transcripts_utils.get_transcript(
-            self.course.id,
-            self.video.location.block_id,
+            self.video,
+            self.video.get_transcripts_info(),
             language,
             output_format=transcripts_utils.Transcript.SJSON
         )
@@ -871,10 +875,6 @@ class TestGetTranscript(SharedModuleStoreTestCase):
         self.assertEqual(filename, 'ur_video_101.sjson')
         self.assertEqual(mimetype, self.sjson_mime_type)
 
-    @patch(
-        'openedx.core.djangoapps.video_config.models.VideoTranscriptEnabledFlag.feature_enabled',
-        Mock(return_value=True),
-    )
     @patch('xmodule.video_module.transcripts_utils.get_video_transcript_content')
     def test_get_transcript_from_val(self, mock_get_video_transcript_content):
         """
@@ -886,8 +886,8 @@ class TestGetTranscript(SharedModuleStoreTestCase):
         }
 
         content, filename, mimetype = transcripts_utils.get_transcript(
-            self.course.id,
-            self.video.location.block_id,
+            self.video,
+            self.video.get_transcripts_info(),
         )
         self.assertEqual(content, self.subs_srt)
         self.assertEqual(filename, 'edx.srt')
@@ -899,8 +899,8 @@ class TestGetTranscript(SharedModuleStoreTestCase):
         """
         with self.assertRaises(NotFoundError) as invalid_format_exception:
             transcripts_utils.get_transcript(
-                self.course.id,
-                self.video.location.block_id,
+                self.video,
+                self.video.get_transcripts_info(),
                 'ur',
                 output_format='mpeg'
             )
@@ -917,8 +917,8 @@ class TestGetTranscript(SharedModuleStoreTestCase):
 
         with self.assertRaises(NotFoundError) as no_content_exception:
             transcripts_utils.get_transcript(
-                self.course.id,
-                self.video.location.block_id,
+                self.video,
+                self.video.get_transcripts_info(),
                 'ur'
             )
 
@@ -933,10 +933,43 @@ class TestGetTranscript(SharedModuleStoreTestCase):
         self.store.update_item(self.video, self.user.id)
         with self.assertRaises(NotFoundError) as no_en_transcript_exception:
             transcripts_utils.get_transcript(
-                self.course.id,
-                self.video.location.block_id,
+                self.video,
+                self.video.get_transcripts_info(),
                 'en'
             )
 
         exception_message = text_type(no_en_transcript_exception.exception)
         self.assertEqual(exception_message, 'No transcript for `en` language')
+
+    @ddt.data(
+        transcripts_utils.TranscriptsGenerationException,
+        UnicodeDecodeError('alieancodec', b'\x02\x01', 1, 2, 'alien codec found!')
+    )
+    @patch('xmodule.video_module.transcripts_utils.get_transcript_from_val')
+    def test_get_transcript_val_exceptions(self, exception_to_raise, mock_get_transcript_from_val):
+        """
+        Verify that `get_transcript_from_val` function raises `NotFoundError` when specified exceptions raised.
+        """
+        mock_get_transcript_from_val.side_effect = exception_to_raise
+        with self.assertRaises(NotFoundError):
+            transcripts_utils.get_transcript(
+                self.video,
+                self.video.get_transcripts_info(),
+            )
+
+    @ddt.data(
+        transcripts_utils.TranscriptException,
+        transcripts_utils.TranscriptsGenerationException,
+        UnicodeDecodeError('alieancodec', b'\x02\x01', 1, 2, 'alien codec found!')
+    )
+    @patch('xmodule.video_module.transcripts_utils.get_transcript_from_contentstore')
+    def test_get_transcript_content_store_exceptions(self, exception_to_raise, mock_get_transcript_from_contentstore):
+        """
+        Verify that `get_transcript_from_contentstore` function raises `NotFoundError` when specified exceptions raised.
+        """
+        mock_get_transcript_from_contentstore.side_effect = exception_to_raise
+        with self.assertRaises(NotFoundError):
+            transcripts_utils.get_transcript(
+                self.video,
+                self.video.get_transcripts_info(),
+            )

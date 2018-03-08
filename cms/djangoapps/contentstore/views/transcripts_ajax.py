@@ -165,9 +165,9 @@ def download_transcripts(request):
 
     try:
         content, filename, mimetype = get_transcript(
-            item.location.course_key,
-            block_id=item.location.block_id,
-            lang=u'en'
+            item,
+            item.get_transcripts_info(),
+            lang=u'en',
         )
     except NotFoundError:
         raise Http404
