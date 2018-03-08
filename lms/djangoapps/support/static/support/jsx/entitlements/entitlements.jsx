@@ -1,6 +1,6 @@
 import React from 'react';
 
-export function EntitlementSupportPage(props) {
+export function EntitlementSupportPage() {
   return (
     <div>
       Base Entitlement Support Page
